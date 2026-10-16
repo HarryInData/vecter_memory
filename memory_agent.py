@@ -5,21 +5,46 @@ First run indexes kb.txt into memory.json. Use --reindex to rebuild. Never put A
 """
 import argparse, hashlib, json, math, os, sys, time
 from pathlib import Path
+HERE=Path(__file__).resolve().parent
+KB_PATH=HERE/'kb.txt'; MEMORY_PATH=HERE/'memory.json'
+
 try:
     from openai import OpenAI
 except ImportError:
+    for venv_py in [HERE / '.venv' / 'bin' / 'python', HERE.parent / '.venv' / 'bin' / 'python']:
+        if venv_py.exists() and sys.executable != str(venv_py):
+            os.execv(str(venv_py), [str(venv_py)] + sys.argv)
     raise SystemExit('Install dependency: pip install openai')
+
+def _load_env_file(path):
+    if not path.is_file(): return
+    try:
+        for line in path.read_text(encoding='utf-8').splitlines():
+            line = line.strip()
+            if not line or line.startswith('#') or '=' not in line: continue
+            k, v = line.split('=', 1)
+            k, v = k.strip(), v.strip().strip('\'"')
+            if k and k not in os.environ:
+                os.environ[k] = v
+    except Exception: pass
+
+for env_candidate in [HERE / '.env', Path.cwd() / '.env', HERE.parent / '.env']:
+    _load_env_file(env_candidate)
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv(HERE / '.env')
+except ImportError:
+    pass
 
 BASE_URL='https://openrouter.ai/api/v1'
 EMBED_MODEL=os.getenv('OPENROUTER_EMBEDDING_MODEL','nvidia/nemotron-3-embed-1b:free')
 CHAT_MODEL=os.getenv('OPENROUTER_CHAT_MODEL','nvidia/nemotron-3.5-lightning:free')
-HERE=Path(__file__).resolve().parent
-KB_PATH=HERE/'kb.txt'; MEMORY_PATH=HERE/'memory.json'
 CHUNK_SIZE=500; CHUNK_OVERLAP=60; TOP_K=3
 
 def make_client():
     key=os.getenv('OPENROUTER_API_KEY')
-    if not key: raise RuntimeError('Set OPENROUTER_API_KEY in your environment first.')
+    if not key: raise RuntimeError('Set OPENROUTER_API_KEY in your .env or environment first.')
     return OpenAI(base_url=BASE_URL,api_key=key)
 
 def chunk_text(text,size=CHUNK_SIZE,overlap=CHUNK_OVERLAP):
